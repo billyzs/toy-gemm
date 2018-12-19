@@ -5,6 +5,7 @@
 #include <array>
 #include <cassert>
 #include <initializer_list>
+#include <numeric>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -17,6 +18,12 @@ struct RowVecTag final {
 };
 struct ColVecTag final {
 };
+
+template <typename RetType, typename ElemType, size_t... idx>
+constexpr RetType list_item(std::initializer_list<ElemType> &&l, std::index_sequence<idx...>)
+{
+    return {(*std::next(std::begin(std::move(l)), idx))...};
+}
 }  // namespace internal
 
 ///< @brief Vec is a thin wrapper around std::array representing a 1D vector
@@ -26,14 +33,14 @@ using Vec = std::array<T, C>;
 template <size_t R, size_t C, typename T = int>
 class Mat
 {
-   private:
-    using ThisType = Mat<R, C, T>;
+   public:
     using RowType = Vec<T, C>;
+    using ColType = Vec<T, R>;
+    using ThisType = Mat<R, C, T>;
+
     using TRef = typename RowType::reference;
     using TCRef = typename RowType::const_reference;
     using StorageType = std::array<RowType, R>;
-
-   public:
     using RowIterator = typename RowType::iterator;
     using ConstRowIterator = typename RowType::const_iterator;
 
@@ -78,9 +85,10 @@ class Mat
      * it's nice to be able to initialize a Mat like
      * @c Mat<3,2> M{{1,2,3},{4,5,6}}
      * because some compile time dimension checks can be performed
-     * @note we don't have compile time initializer_list yet, otherwise we could make the whole thing constexpr
+     * @note we don't have compile time non-empty initializer_list yet, otherwise we could make the whole thing
+     * constexpr
      */
-    template <typename... E, std::enable_if_t<R == sizeof...(E), int> = 0>
+    template <typename... E>  //, std::enable_if_t<R == sizeof...(E), int> = 0>
     explicit Mat<R, C, T>(std::initializer_list<E> &&... l)
     {
         static_assert(R == sizeof...(l));
@@ -147,26 +155,71 @@ class Mat
 
     [[nodiscard]] constexpr const StorageType &rows() const noexcept { return elems; }
 
+    template <size_t Col>
+    [[nodiscard]] constexpr ColType get_col() const noexcept
+    {
+        return GetCol<Col>::get_impl(elems, std::make_index_sequence<R>());
+    }
+
+    template <size_t Col>
+    [[nodiscard]] ColType get_col() noexcept
+    {
+        return GetCol<Col>::get_impl(elems, std::make_index_sequence<R>());
+    }
+
     // operators
     [[nodiscard]] constexpr bool operator==(const ThisType &other) const noexcept { return elems == other.elems; }
 
     [[nodiscard]] constexpr bool operator!=(const ThisType &other) const noexcept { return !this->operator==(other); }
 
-   private:
-    StorageType elems{0};  ///< row major 2D array
-    // explicit Mat<R,C,T>(StorageType&& e) : elems(std::move(e)){}
-
-    // TODO move to internal
-    template <size_t... idx>
-    constexpr RowType list_item(std::initializer_list<T> &&l, std::index_sequence<idx...>)
+    template <size_t OtherC, typename E>
+    [[nodiscard]] auto operator*(const Mat<C, OtherC, E> &other) const noexcept
     {
-        return {(*std::next(std::begin(std::move(l)), idx))...};
+        using RetType = Mat<R, OtherC, std::common_type_t<T, E>>;
+        RetType ret;                          // R*OtherC
+        typename RetType::ColType other_col;  // C*1
+        for (size_t r = 0; r < R; ++r) {
+            for (size_t c = 0; c < OtherC; ++c) {
+                for (size_t oc = 0; oc < C; ++oc) {
+                    other_col[oc] = other.at(oc).at(c);
+                }
+                ret[r][c] = std::inner_product(this->at(r).cbegin(), this->at(r).cend(), other_col.cbegin(), T{0});
+            }
+        }
+        return ret;
     }
 
+    [[nodiscard]] constexpr auto transpose() const noexcept { using RetType = Mat<C, R, T>; }
+
+   private:
+    StorageType elems{0};  ///< row-major 2D array, defaults to zero-initialized
+    // explicit Mat<R,C,T>(StorageType&& e) : elems(std::move(e)){}
+
+    /**
+     * @brief helper struct to get the column
+     * Can't have get_impl take in both a size_t tparam and a size_t... param pack, so passing Col via the tparams of
+     * this struct
+     * @tparam Col the column to get
+     */
+    template <size_t Col>
+    struct GetCol final {
+        GetCol() = delete;
+        template <size_t... idx>
+        static constexpr ColType get_impl(const StorageType &storage, std::index_sequence<idx...>) noexcept
+        {
+            return {std::get<Col>(std::get<idx>(storage))...};
+        }
+        template <size_t... idx>
+        static ColType get_impl(StorageType &storage, std::index_sequence<idx...>) noexcept
+        {
+            return {std::get<Col>(std::get<idx>(storage))...};
+        }
+    };
+
     // TODO try SFINAE
-    constexpr auto make_row(std::initializer_list<T> &&l) -> RowType
+    constexpr RowType make_row(std::initializer_list<T> &&l)
     {
-        return list_item(std::move(l), std::make_index_sequence<C>());
+        return internal::list_item<RowType, T>(std::move(l), std::make_index_sequence<C>());
     }
 
     template <size_t... idx>

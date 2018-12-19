@@ -2,6 +2,7 @@
 #include <toy-gemm/matrix.hpp>
 
 using namespace toy_gemm;
+using M22 = Mat<2, 2, int>;
 
 TEST(toy_gemm_ctor, ctor)
 {
@@ -49,4 +50,29 @@ TEST(toy_gemm_ctor, comparison)
     ASSERT_EQ(x, y);
     y.get<2, 2>() = 1;
     ASSERT_NE(x, y);
+}
+
+TEST(toy_gemm_ctor, multiplication)
+{
+    constexpr M22 x{1,2,3,4};
+    constexpr M22 y{1,0,0,1};
+    auto z = x * y;
+    ASSERT_EQ(z, x);
+    ASSERT_EQ(y*y, y);
+}
+
+TEST(toy_gemm_ctor, get_col)
+{
+    constexpr M22 x{1,2,3,4};
+    constexpr auto xcol1 = x.get_col<0>();
+    constexpr M22::ColType col1{1,3};
+    constexpr auto xcol2 = x.get_col<1>();
+    constexpr M22::ColType col2{2,4};
+    ASSERT_EQ(col1, xcol1);
+    ASSERT_EQ(col2, xcol2);
+
+    auto y = x;
+    auto ycol1 = y.get_col<0>();
+    ASSERT_EQ(col1, ycol1);
+
 }
