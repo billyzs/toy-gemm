@@ -158,17 +158,36 @@ class Mat
     template <size_t Col>
     [[nodiscard]] constexpr ColType get_col() const noexcept
     {
-        return GetCol<Col>::get_impl(elems, std::make_index_sequence<R>());
+        return GetCol<Col>::impl(elems, std::make_index_sequence<R>());
     }
 
     template <size_t Col>
     [[nodiscard]] ColType get_col() noexcept
     {
-        return GetCol<Col>::get_impl(elems, std::make_index_sequence<R>());
+        return GetCol<Col>::impl(elems, std::make_index_sequence<R>());
+    }
+
+    template <size_t Col>
+    [[nodiscard]] constexpr auto get_col_view() noexcept
+    {
+        // return a tuple of length R containing references to elements at column Col
+        return GetColView<Col>::impl(elems, std::make_index_sequence<R>());
+    }
+
+    template <size_t Col>
+    [[nodiscard]] constexpr auto get_col_view() const noexcept
+    {
+        // return a tuple of length R containing references to elements at column Col
+        return GetColView<Col>::impl(elems, std::make_index_sequence<R>());
     }
 
     // operators
-    [[nodiscard]] constexpr bool operator==(const ThisType &other) const noexcept { return elems == other.elems; }
+    [[nodiscard]] constexpr bool operator==(const ThisType &other) const noexcept
+    {
+        // could do return elems == other.elems but libstdc++ did not implement == for arrays as constexpr...
+        // return equal(other.elems, std::make_index_sequence<R>());
+        return elems == other.elems;
+    }
 
     [[nodiscard]] constexpr bool operator!=(const ThisType &other) const noexcept { return !this->operator==(other); }
 
@@ -176,6 +195,7 @@ class Mat
     [[nodiscard]] auto operator*(const Mat<C, OtherC, E> &other) const noexcept
     {
         using RetType = Mat<R, OtherC, std::common_type_t<T, E>>;
+        constexpr auto make_ret_mat = [](auto... e) { return RetType{e...}; };
         RetType ret;                          // R*OtherC
         typename RetType::ColType other_col;  // C*1
         for (size_t r = 0; r < R; ++r) {
@@ -189,9 +209,15 @@ class Mat
         return ret;
     }
 
-    [[nodiscard]] constexpr auto transpose() const noexcept { using RetType = Mat<C, R, T>; }
+    [[nodiscard]] constexpr Mat<C, R, T> transpose() const noexcept
+    {
+        return transpose_impl(std::make_index_sequence<C>());
+    }
 
    private:
+    template <size_t OR, size_t OC, typename OT>
+    friend class Mat;
+
     StorageType elems{0};  ///< row-major 2D array, defaults to zero-initialized
     // explicit Mat<R,C,T>(StorageType&& e) : elems(std::move(e)){}
 
@@ -205,14 +231,14 @@ class Mat
     struct GetCol final {
         GetCol() = delete;
         template <size_t... idx>
-        static constexpr ColType get_impl(const StorageType &storage, std::index_sequence<idx...>) noexcept
+        static constexpr ColType impl(const StorageType &storage, std::index_sequence<idx...>) noexcept
         {
             return {std::get<Col>(std::get<idx>(storage))...};
         }
         template <size_t... idx>
-        static ColType get_impl(StorageType &storage, std::index_sequence<idx...>) noexcept
+        static ColType impl(StorageType &storage, std::index_sequence<idx...>) noexcept
         {
-            return {std::get<Col>(std::get<idx>(storage))...};
+            return {std::get<Col>(std::get<idx>(storage))...};  // call get<Col> on every "row" in storage
         }
     };
 
@@ -225,14 +251,40 @@ class Mat
     template <size_t... idx>
     constexpr auto rows(std::index_sequence<idx...>)
     {
-        return std::tie(elems[idx]...);
+        return std::forward_as_tuple(elems[idx]...);
     }
 
     template <typename... L>
     constexpr void make(std::initializer_list<L> &&... l)
     {
         constexpr auto seq = std::index_sequence_for<L...>();
-        rows(seq) = std::make_tuple(make_row(std::move(l))...);
+        rows(seq) = std::forward_as_tuple(make_row(std::move(l))...);
+    }
+
+    template <size_t... idx>
+    constexpr Mat<C, R, T> transpose_impl(std::index_sequence<idx...>) const noexcept
+    {
+        constexpr auto make_transpose_mat = [](auto... e) { return Mat<C, R, T>{e...}; };
+        return std::apply(make_transpose_mat, std::tuple_cat(get_col_view<idx>()...));
+    }
+
+    template <size_t Col>
+    struct GetColView final {
+        GetColView() = delete;
+        template <typename SType, size_t... Row>
+        static constexpr auto impl(SType &&storage, std::index_sequence<Row...>) noexcept
+        {
+            return std::forward_as_tuple(std::get<Col>(std::get<Row>(std::forward<SType>(storage)))...);
+        }
+    };
+
+    template <size_t... idx>
+    constexpr bool equal(const StorageType &other, std::index_sequence<idx...>) const noexcept
+    {
+        constexpr auto e = [](const RowType &r1, const RowType &r2, auto... col) {
+            return ([&r1, &r2, &col]() { return std::get<col>(r1) == std::get<col>(r2); } && ...);
+        };
+        return (e(std::get<idx>(elems), std::get<idx>(other)) && ...);
     }
 };
 

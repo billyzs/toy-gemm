@@ -2,8 +2,9 @@
 #include <toy-gemm/matrix.hpp>
 
 using namespace toy_gemm;
-using M22 = Mat<2, 2, int>;
-
+using M22 = Mat<2, 2>;
+using M23 = Mat<2, 3>;
+using M32 = Mat<3, 2>;
 TEST(toy_gemm_ctor, ctor)
 {
     constexpr Mat<3, 3, int> x;
@@ -32,17 +33,17 @@ TEST(toy_gemm, accessor)
 
 TEST(toy_gemm, rows)
 {
-    const Mat<2, 3, int> M23({1, 2, 3}, {4, 5, 6});
-    const Mat<2, 3, int> M23_dup = M23;
+    const M23 m23({1, 2, 3}, {4, 5, 6});
+    const Mat<2, 3, int> m23_dup = m23;
     size_t r = 0;
-    for (const auto& row : M23.rows()) {  // should be compatible with range for
+    for (const auto& row : m23.rows()) {  // shall be compatible with range for
         ASSERT_EQ(row.size(), 3);
-        ASSERT_EQ(row, M23_dup[r++]);
+        ASSERT_EQ(row, m23_dup[r++]);
     }
     ASSERT_EQ(r, 2);
 }
 
-TEST(toy_gemm_ctor, comparison)
+TEST(toy_gemm_ops, comparison)
 {
     using M33 = Mat<3, 3, int>;
     constexpr M33 x;
@@ -52,27 +53,48 @@ TEST(toy_gemm_ctor, comparison)
     ASSERT_NE(x, y);
 }
 
-TEST(toy_gemm_ctor, multiplication)
+TEST(toy_gemm_ops, multiplication)
 {
-    constexpr M22 x{1,2,3,4};
-    constexpr M22 y{1,0,0,1};
+    constexpr M22 x{1, 2, 3, 4};
+    constexpr M22 y{1, 0, 0, 1};
     auto z = x * y;
     ASSERT_EQ(z, x);
-    ASSERT_EQ(y*y, y);
+    ASSERT_EQ(y * y, y);
 }
 
-TEST(toy_gemm_ctor, get_col)
+TEST(toy_gemm_ops, transpose)
 {
-    constexpr M22 x{1,2,3,4};
+    constexpr M23 m23{1, 2, 3, 4, 5, 6};
+    constexpr M32 m23_t{1, 4, 2, 5, 3, 6};
+    constexpr M32 m32 = m23.transpose();
+    static_assert(std::is_same_v<M32, std::remove_cv_t<decltype(m32)>>, "type must match");
+    // static_assert(m32 == m23_t, "value must match");
+    ASSERT_EQ(m32, m23_t);
+}
+
+TEST(toy_gemm_access, get_col)
+{
+    constexpr M22 x{1, 2, 3, 4};
     constexpr auto xcol1 = x.get_col<0>();
-    constexpr M22::ColType col1{1,3};
+    constexpr M22::ColType col1{1, 3};
     constexpr auto xcol2 = x.get_col<1>();
-    constexpr M22::ColType col2{2,4};
+    constexpr M22::ColType col2{2, 4};
     ASSERT_EQ(col1, xcol1);
     ASSERT_EQ(col2, xcol2);
+
+    // looks like the ctor of tuple is not constexpr, otherwise this could be constexpr too
+    // this does on constexpr Mat which is pretty cool, but I admit it's not very useful yet :P
+    std::tuple<const int&, const int&> xcolv2 = x.get_col_view<1>();
+    auto [c1, c2] = xcolv2; //structured binding
+    ASSERT_EQ(c1, 2);
+    ASSERT_EQ(c2, 4);
 
     auto y = x;
     auto ycol1 = y.get_col<0>();
     ASSERT_EQ(col1, ycol1);
+
+    y.get_col_view<1>() = std::make_tuple(0,0);
+    constexpr M22 yy{1,0,3,0};
+    ASSERT_EQ(y, yy);
 
 }
