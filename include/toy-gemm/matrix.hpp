@@ -192,21 +192,15 @@ class Mat
     [[nodiscard]] constexpr bool operator!=(const ThisType &other) const noexcept { return !this->operator==(other); }
 
     template <size_t OtherC, typename E>
-    [[nodiscard]] auto operator*(const Mat<C, OtherC, E> &other) const noexcept
+    [[nodiscard]] constexpr auto operator*(const Mat<C, OtherC, E> &other) const noexcept
     {
-        using RetType = Mat<R, OtherC, std::common_type_t<T, E>>;
+        using RetElement = decltype(std::declval<E>() *
+                                    std::declval<T>());  // the type of the return element should be the type produced
+                                                         // by multiplying an instance of T with an instance of E
+        using RetType = Mat<R, OtherC, RetElement>;
         constexpr auto make_ret_mat = [](auto... e) { return RetType{e...}; };
-        RetType ret;                          // R*OtherC
-        typename RetType::ColType other_col;  // C*1
-        for (size_t r = 0; r < R; ++r) {
-            for (size_t c = 0; c < OtherC; ++c) {
-                for (size_t oc = 0; oc < C; ++oc) {
-                    other_col[oc] = other.at(oc).at(c);
-                }
-                ret[r][c] = std::inner_product(this->at(r).cbegin(), this->at(r).cend(), other_col.cbegin(), T{0});
-            }
-        }
-        return ret;
+        return std::apply(make_ret_mat,
+                          MulImpl<RetElement, OtherC>::build_mat(elems, other, std::make_index_sequence<R>()));
     }
 
     [[nodiscard]] constexpr Mat<C, R, T> transpose() const noexcept
@@ -231,12 +225,12 @@ class Mat
     struct GetCol final {
         GetCol() = delete;
         template <size_t... idx>
-        static constexpr ColType impl(const StorageType &storage, std::index_sequence<idx...>) noexcept
+        [[nodiscard]] static constexpr ColType impl(const StorageType &storage, std::index_sequence<idx...>) noexcept
         {
             return {std::get<Col>(std::get<idx>(storage))...};
         }
         template <size_t... idx>
-        static ColType impl(StorageType &storage, std::index_sequence<idx...>) noexcept
+        [[nodiscard]] static ColType impl(StorageType &storage, std::index_sequence<idx...>) noexcept
         {
             return {std::get<Col>(std::get<idx>(storage))...};  // call get<Col> on every "row" in storage
         }
@@ -275,6 +269,44 @@ class Mat
         static constexpr auto impl(SType &&storage, std::index_sequence<Row...>) noexcept
         {
             return std::forward_as_tuple(std::get<Col>(std::get<Row>(std::forward<SType>(storage)))...);
+        }
+    };
+
+    template <typename ElemType, size_t OCol>
+    struct MulImpl final {
+        MulImpl() = delete;
+        /**
+         * @brief constexpr dot product of two arrays of same length
+         * @tparam OtherCol type of a col from the rhs matrix
+         * @tparam Cols param pact of the same length as other_col
+         * @param this_row a row form the lhs matrix, should have length C
+         * @param other_col a col from the rhs matrix, should have length C
+         * @return the inner product of this_row and other_col, with type promotion as necessary
+         */
+        template <typename OtherCol, size_t... Cols>
+        [[nodiscard]] constexpr static ElemType inner_product(const RowType &this_row, const OtherCol &other_col,
+                                                              std::index_sequence<Cols...>) noexcept
+        {
+            // this_row should be of the same length as other_col (C)
+            constexpr auto sum = [](auto... e) { return (e + ...); };
+            return std::apply(sum, std::forward_as_tuple(std::get<Cols>(this_row) * std::get<Cols>(other_col)...));
+        }
+
+        template <size_t Row, typename OtherMat, size_t... OCols>
+        [[nodiscard]] constexpr static auto build_row(const StorageType &this_storage, const OtherMat &other_mat,
+                                                      std::index_sequence<OCols...>) noexcept
+        {
+            return std::make_tuple(inner_product(std::get<Row>(this_storage), other_mat.template get_col_view<OCols>(),
+                                                 std::make_index_sequence<C>())...);
+        }
+        template <typename OtherMat, size_t... Rows>
+        [[nodiscard]] constexpr static auto build_mat(const StorageType &this_storage, const OtherMat &other_storage,
+                                                      std::index_sequence<Rows...>) noexcept
+        {
+            // TODO this might be bad because parameter pack expansion is not guaranteed to be ordered; think of a way
+            // to use init list return std::apply(std::tuple_cat, std::forward_as_tuple({build_row<Rows>(this_storage,
+            // other_storage, std::make_index_sequence<OCol>())...}));
+            return std::tuple_cat(build_row<Rows>(this_storage, other_storage, std::make_index_sequence<OCol>())...);
         }
     };
 

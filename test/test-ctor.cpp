@@ -57,9 +57,12 @@ TEST(toy_gemm_ops, multiplication)
 {
     constexpr M22 x{1, 2, 3, 4};
     constexpr M22 y{1, 0, 0, 1};
-    auto z = x * y;
+    M22 z = x * y;
+    auto zz = z * y;
     ASSERT_EQ(z, x);
     ASSERT_EQ(y * y, y);
+    ASSERT_EQ(z, zz);
+    EXPECT_EQ(x * y, y * x);
 }
 
 TEST(toy_gemm_ops, transpose)
@@ -85,7 +88,7 @@ TEST(toy_gemm_access, get_col)
     // looks like the ctor of tuple is not constexpr, otherwise this could be constexpr too
     // this does on constexpr Mat which is pretty cool, but I admit it's not very useful yet :P
     std::tuple<const int&, const int&> xcolv2 = x.get_col_view<1>();
-    auto [c1, c2] = xcolv2; //structured binding
+    auto [c1, c2] = xcolv2;  // structured binding
     ASSERT_EQ(c1, 2);
     ASSERT_EQ(c2, 4);
 
@@ -93,8 +96,7 @@ TEST(toy_gemm_access, get_col)
     auto ycol1 = y.get_col<0>();
     ASSERT_EQ(col1, ycol1);
 
-    y.get_col_view<1>() = std::make_tuple(0,0);
-    constexpr M22 yy{1,0,3,0};
+    y.get_col_view<1>() = std::make_tuple(0, 0);
+    constexpr M22 yy{1, 0, 3, 0};
     ASSERT_EQ(y, yy);
-
 }
