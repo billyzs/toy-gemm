@@ -1,11 +1,9 @@
 #ifndef TOY_GEMM_MATRIX_HPP
 #define TOY_GEMM_MATRIX_HPP
 
-#include <algorithm>
 #include <array>
-#include <cassert>
+#include <exception>
 #include <initializer_list>
-#include <numeric>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -81,26 +79,23 @@ class Mat
     {
         static_assert(ROW_COUNT == sizeof...(l));
         const bool every_list_must_have_C_elements = ((COL_COUNT == l.size()) && ...);  // C++17 fold expression
-        assert(every_list_must_have_C_elements);
+        if (!every_list_must_have_C_elements) throw std::length_error("every list must have C elements");
         row_wise_init(std::move(l)...);
     }
 
     // access (might throw)
     [[nodiscard]] constexpr const RowType &operator[](size_t r) const
     {
-        // TODO assert?
         return elems.at(r);
     }
 
     [[nodiscard]] RowType &operator[](size_t r)
     {
-        // TODO assert?
         return elems.at(r);
     }
 
     [[nodiscard]] constexpr const RowType &at(size_t r) const
     {
-        // TODO assert?
         return elems.at(r);
     }
 
@@ -108,7 +103,6 @@ class Mat
 
     [[nodiscard]] constexpr const T &at(size_t r, size_t c) const
     {
-        // TODO assert?
         return elems.at(r).at(c);
     }
 
@@ -250,7 +244,6 @@ class Mat
     template <size_t... Cols>
     constexpr RowType make_row(std::initializer_list<T> &&l, std::index_sequence<Cols...>)
     {
-        // TODO maybe assert on size of list
         return {(*std::next(std::begin(std::move(l)), Cols))...};
     }
 
